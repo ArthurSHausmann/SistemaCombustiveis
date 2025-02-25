@@ -153,44 +153,48 @@ def main(page : ft.Page):
                 
                 df_selecionado["KM"] = pd.to_numeric(df_selecionado["KM"], errors="coerce")
                 df_selecionado["LITRAGEM"] = pd.to_numeric(df_selecionado["LITRAGEM"].astype(str).str.replace(",", ".", regex=False), errors="coerce")
-                
+                df_selecionado["DATA"] = pd.to_datetime(df_selecionado["DATA"], errors="coerce").dt.strftime('%d/%m/%Y')
+
                 area_de_trabalho = os.path.expanduser("~/Desktop")
                 caminho_arquivo = os.path.join(area_de_trabalho, "Informacoes combustiveis.xlsx")
-                
-                # Carregar workbook uma única vez, se existir
+
                 if os.path.exists(caminho_arquivo):
                     book = load_workbook(caminho_arquivo)
                 else:
                     book = None
-                
+
                 placas_unicas = df_selecionado["PLACA"].unique()
 
-                # Salvar os DataFrames no Excel antes de adicionar fórmulas
                 with pd.ExcelWriter(caminho_arquivo, engine="openpyxl", mode="a" if book else "w", if_sheet_exists="replace") as writer:
                     for placa in placas_unicas:
                         df_placa = df_selecionado[df_selecionado["PLACA"] == placa].copy()
                         df_placa = df_placa.sort_values(by="DATA")
 
                         if book and placa in book.sheetnames:
-                            existing_df = pd.read_excel(caminho_arquivo, sheet_name=str(placa))
-                            existing_df["DATA"] = pd.to_datetime(existing_df["DATA"], format="%d/%m/%Y", errors="coerce")
-                            df_placa["DATA"] = pd.to_datetime(df_placa["DATA"], errors="coerce")
-                            df_placa = df_placa.dropna(subset=["DATA"])
+                            existing_df = pd.read_excel(caminho_arquivo, sheet_name=str(placa), dtype=str)
+                            existing_df["DATA"] = pd.to_datetime(existing_df["DATA"], format="%d/%m/%Y", errors="coerce").dt.strftime('%d/%m/%Y')
+
+                            df_placa["DATA"] = pd.to_datetime(df_placa["DATA"], format="%d/%m/%Y", errors="coerce").dt.strftime('%d/%m/%Y')
+
+                            # Unificar formatos de colunas antes da comparação
+                            existing_df["KM"] = pd.to_numeric(existing_df["KM"], errors="coerce")
+                            existing_df["LITRAGEM"] = pd.to_numeric(existing_df["LITRAGEM"], errors="coerce")
                             
-                            # Remover registros duplicados
-                            df_placa = df_placa.merge(existing_df, on=["PLACA", "DATA", "KM", "POSTO", "LITRAGEM"], how="left", indicator=True)
+                            df_placa["KM"] = pd.to_numeric(df_placa["KM"], errors="coerce")
+                            df_placa["LITRAGEM"] = pd.to_numeric(df_placa["LITRAGEM"], errors="coerce")
+
+                            # Encontrar registros novos
+                            df_placa = df_placa.merge(
+                                existing_df, on=["PLACA", "DATA", "KM", "POSTO", "LITRAGEM"], how="left", indicator=True
+                            )
                             df_placa = df_placa[df_placa["_merge"] == "left_only"].drop(columns=["_merge"])
-                            
+
                             df_placa = pd.concat([existing_df, df_placa], ignore_index=True)
                             df_placa.drop_duplicates(subset=["PLACA", "DATA", "KM", "POSTO", "LITRAGEM"], keep="first", inplace=True)
                             df_placa = df_placa.sort_values(by="DATA")
 
-                        if pd.api.types.is_datetime64_any_dtype(df_placa["DATA"]):
-                            df_placa["DATA"] = df_placa["DATA"].dt.strftime('%d/%m/%Y')
-
                         df_placa.to_excel(writer, sheet_name=str(placa), index=False)
 
-                # Agora abrir a planilha uma única vez e adicionar fórmulas
                 book = load_workbook(caminho_arquivo)
                 
                 for placa in placas_unicas:
@@ -198,15 +202,16 @@ def main(page : ft.Page):
                     max_row = sheet.max_row
 
                     for row in range(2, max_row + 1):
-                        if row > 2:  # Evita erro na primeira linha
+                        if row > 2:
                             formula = f'=IF(A{row}<>"",(D{row}-D{row-1})/E{row},"")'
                             sheet[f"F{row}"] = formula
-                
+
                 book.save(caminho_arquivo)
 
             except Exception as e:
                 print(f"Erro ao criar ou atualizar a planilha: {e}")
-
+        
+        
         time.sleep(3)
         df, ultima_planilha = abrir_ultima_planilha_downloads()
         if df is not None:
