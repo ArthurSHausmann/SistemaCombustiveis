@@ -149,50 +149,55 @@ def main(page : ft.Page):
                 df_selecionado = df.iloc[:, colunas_desejadas].copy()
                 df_selecionado.columns = ["PLACA", "DATA", "KM", "LITRAGEM"]
                 df_selecionado.insert(2, "POSTO", "S I M")
+                
+                # Conversão correta da DATA para datetime
+                df_selecionado["DATA"] = pd.to_datetime(df_selecionado["DATA"], format="%Y-%m-%d %H:%M", errors="coerce")
                 df_selecionado.sort_values(by=["PLACA", "DATA"], inplace=True)
                 
+                # Conversão numérica de KM e LITRAGEM
                 df_selecionado["KM"] = pd.to_numeric(df_selecionado["KM"], errors="coerce")
                 df_selecionado["LITRAGEM"] = pd.to_numeric(df_selecionado["LITRAGEM"].astype(str).str.replace(",", ".", regex=False), errors="coerce")
-                df_selecionado["DATA"] = pd.to_datetime(df_selecionado["DATA"], errors="coerce").dt.strftime('%d/%m/%Y')
 
                 area_de_trabalho = os.path.expanduser("~/Desktop")
                 caminho_arquivo = os.path.join(area_de_trabalho, "Informacoes combustiveis.xlsx")
-
+                
                 if os.path.exists(caminho_arquivo):
                     book = load_workbook(caminho_arquivo)
                 else:
                     book = None
-
+                
                 placas_unicas = df_selecionado["PLACA"].unique()
-
+                
                 with pd.ExcelWriter(caminho_arquivo, engine="openpyxl", mode="a" if book else "w", if_sheet_exists="replace") as writer:
                     for placa in placas_unicas:
                         df_placa = df_selecionado[df_selecionado["PLACA"] == placa].copy()
-                        df_placa = df_placa.sort_values(by="DATA")
-
+                        
                         if book and placa in book.sheetnames:
                             existing_df = pd.read_excel(caminho_arquivo, sheet_name=str(placa), dtype=str)
-                            existing_df["DATA"] = pd.to_datetime(existing_df["DATA"], format="%d/%m/%Y", errors="coerce").dt.strftime('%d/%m/%Y')
-
-                            df_placa["DATA"] = pd.to_datetime(df_placa["DATA"], format="%d/%m/%Y", errors="coerce").dt.strftime('%d/%m/%Y')
-
-                            # Unificar formatos de colunas antes da comparação
+                            existing_df["DATA"] = pd.to_datetime(existing_df["DATA"], format="%d/%m/%Y", errors="coerce")
+                            
+                            # Garantir que df_placa também está no formato correto antes da comparação
+                            df_placa["DATA"] = pd.to_datetime(df_placa["DATA"], errors="coerce")
+                            
                             existing_df["KM"] = pd.to_numeric(existing_df["KM"], errors="coerce")
                             existing_df["LITRAGEM"] = pd.to_numeric(existing_df["LITRAGEM"], errors="coerce")
                             
                             df_placa["KM"] = pd.to_numeric(df_placa["KM"], errors="coerce")
                             df_placa["LITRAGEM"] = pd.to_numeric(df_placa["LITRAGEM"], errors="coerce")
-
+                            
                             # Encontrar registros novos
                             df_placa = df_placa.merge(
-                                existing_df, on=["PLACA", "DATA", "KM", "POSTO", "LITRAGEM"], how="left", indicator=True
+                                existing_df, on=["PLACA", "DATA", "POSTO", "KM", "LITRAGEM"], how="left", indicator=True
                             )
                             df_placa = df_placa[df_placa["_merge"] == "left_only"].drop(columns=["_merge"])
-
+                            
                             df_placa = pd.concat([existing_df, df_placa], ignore_index=True)
-                            df_placa.drop_duplicates(subset=["PLACA", "DATA", "KM", "POSTO", "LITRAGEM"], keep="first", inplace=True)
-                            df_placa = df_placa.sort_values(by="DATA")
-
+                            df_placa.drop_duplicates(subset=["PLACA", "DATA", "POSTO", "KM", "LITRAGEM"], keep="first", inplace=True)
+                            
+                        # Ordenação correta antes de salvar
+                        df_placa = df_placa.sort_values(by="DATA")
+                        df_placa["DATA"] = df_placa["DATA"].dt.strftime('%d/%m/%Y')  # Formatação para salvar no Excel
+                        df_placa.drop_duplicates(subset=["PLACA", "DATA", "POSTO", "KM", "LITRAGEM"], keep="first", inplace=True)
                         df_placa.to_excel(writer, sheet_name=str(placa), index=False)
 
                 book = load_workbook(caminho_arquivo)
@@ -200,16 +205,17 @@ def main(page : ft.Page):
                 for placa in placas_unicas:
                     sheet = book[str(placa)]
                     max_row = sheet.max_row
-
+                    
                     for row in range(2, max_row + 1):
                         if row > 2:
-                            formula = f'=IF(A{row}<>"",(D{row}-D{row-1})/E{row},"")'
+                            formula = f'=IF(A{row}<>"," ,(D{row}-D{row-1})/E{row},"")'
                             sheet[f"F{row}"] = formula
-
+                
                 book.save(caminho_arquivo)
-
+            
             except Exception as e:
                 print(f"Erro ao criar ou atualizar a planilha: {e}")
+
         
         
         time.sleep(3)
